@@ -1,0 +1,1 @@
+from OCRSpace.API import *
