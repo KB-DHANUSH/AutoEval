@@ -3,14 +3,14 @@ This module provides utility functions for JWT authentication and password manag
 
 It includes functions for creating and verifying tokens, hashing passwords, and retrieving the current user.
 """
-from  app import REFRESH_TOKEN_BLOCKLIST
+from config import REFRESH_TOKEN_BLOCKLIST
 import os
 from passlib.context import CryptContext
 from dotenv import load_dotenv
 from typing import Union, Any, Annotated
 from jose import jwt
-from app import app
 from bson import ObjectId
+from pymongo.database import Database
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
@@ -94,7 +94,7 @@ async def create_access_token(
         str: The generated JWT access token.
     """
     if expires_delta is not None:
-        expires_delta = datetime.datetime.now(datetime.timezone.utc) + expires_delta
+        expires_delta = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=expires_delta)
     else:
         expires_delta = datetime.datetime.now(
             datetime.timezone.utc
@@ -118,7 +118,7 @@ async def create_refresh_token(
         str: The generated JWT refresh token.
     """
     if expires_delta is not None:
-        expires_delta = datetime.datetime.now(datetime.timezone.utc) + expires_delta
+        expires_delta = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=expires_delta)
     else:
         expires_delta = datetime.datetime.now(
             datetime.timezone.utc
@@ -156,7 +156,7 @@ async def get_hashed_password(password: str) -> str:
     return password_context.hash(password)
 
 
-async def get_current_user_refresh(refresh_token: str) -> str|HTTPException:
+async def get_current_user_refresh(request: Request, refresh_token: str) -> str|HTTPException:
     """
     Retrieve the current user based on the refresh token in the request.
 
@@ -190,7 +190,7 @@ async def get_current_user_refresh(refresh_token: str) -> str|HTTPException:
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    user = await get_user_by_id(app.database, ObjectId(_id))
+    user = await get_user_by_id(request.app.database, ObjectId(_id))
     if user is None:
         raise credentials_exception
     
@@ -219,7 +219,7 @@ async def get_current_user(
         _id = ObjectId(payload.get("sub"))
         if _id is None:
             raise credentials_exception
-        user = await get_user_by_id(app.database, _id=_id)
+        user = await get_user_by_id(request.app.database, _id=_id)
         if user is None:
             raise credentials_exception
         return user

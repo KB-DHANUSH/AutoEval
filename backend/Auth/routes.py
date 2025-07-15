@@ -5,47 +5,40 @@ from Auth.utils import *
 
 auth_router = APIRouter()
 
-@auth_router.post('/auth/signup',summary="Register and user and return JWT Tokens")
+@auth_router.post('/auth/register',summary="Register and user and return JWT Tokens")
 async def register(user:RegisterReqModel,response:Response,request:Request) -> Response:
     try:
-        user1 = await request.app.database["Users"].find_one({
-            user.email
-        })
-        user2 = await request.app.database["Users"].find_one({
-            user.username
-        })
-        if user1 or user2:
-            raise DuplicateKeyError
         resp = await request.app.database["Users"].insert_one({
-            user.username,
-            user.email,
-            get_hashed_password(user.password)
-        }) 
-    except ConnectionFailure:
+            "username": user.username,
+            "email": user.email,
+            "password": await get_hashed_password(user.password)
+        })
+        access_token = await create_access_token(str(resp.inserted_id),expires_delta=1)
+        refresh_token = await create_refresh_token(str(resp.inserted_id),expires_delta=10)
+    except ConnectionFailure as err:
         response.status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         return {
             "message" : "Something went wrong with the connection to database"
         }
-    except OperationFailure:
-        response.status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-        return {
-            "message" : "Insert_One Operation has failed"
-        }
-    except DuplicateKeyError:
+    except OperationFailure as err:
+        print("OperationFailure:", err.code, err.details)
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"message": "Insert operation failed"}
+
+
+    except DuplicateKeyError as err:
         response.status_code=status.HTTP_406_NOT_ACCEPTABLE
         return{
             "message" : "It Already Exists"
         }
-    except:
+    except Exception as e:
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
         return {
-            "message":"I don't know"
+            "message":f"I don't know: {str(e)}"
         }
-    access_token = create_access_token(str(resp._id),expires_delta=1)
-    refresh_token = create_refresh_token(str(resp._id),expires_delta=10)
     return {
-        access_token,
-        refresh_token
+        "access_token": access_token,
+        "refresh_token": refresh_token
     }
 
 @auth_router.post('/auth/login',description='Login a user and return JWT Tokens',summary="Login a user and return JWT Tokens")

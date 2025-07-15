@@ -8,11 +8,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from dotenv import load_dotenv
 import os
+from config import origins
+from Auth.routes import auth_router
 from pymongo import AsyncMongoClient
 from fastapi.middleware.cors import CORSMiddleware
 
-
-REFRESH_TOKEN_BLOCKLIST = set()
 @asynccontextmanager
 async def db_lifespan(app: FastAPI):
     load_dotenv()
@@ -37,10 +37,7 @@ async def db_lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=db_lifespan,debug=True)
 
-origins = [
-    "http://localhost:5173"
-]
-
+app.include_router(auth_router, prefix="/api")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,  # List of allowed origins
