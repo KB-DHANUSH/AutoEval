@@ -45,12 +45,12 @@ async def register(user:RegisterReqModel,response:Response,request:Request) -> R
 async def login(user:LoginReqModel,response:Response,request:Request) -> Response:
     try:
         db = request.app.database
-        user = await get_user(db, user.email)
-        if not user or not verify_password(user["password"], user.password):
+        user_db = await get_user(db, user.email)
+        if not user_db or not await verify_password(user.password, user_db["password"]):
             response.status_code = status.HTTP_401_UNAUTHORIZED
             return {"message": "Invalid credentials"}
-        access_token = create_access_token(str(user["_id"]), expires_delta=1)
-        refresh_token = create_refresh_token(str(user["_id"]), expires_delta=10)
+        access_token = await create_access_token(str(user_db["_id"]), expires_delta=1)
+        refresh_token = await create_refresh_token(str(user_db["_id"]), expires_delta=10)
         return {
             "access_token": access_token,
             "refresh_token": refresh_token
