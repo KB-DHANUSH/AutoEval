@@ -1,59 +1,106 @@
-from flask import request, Blueprint
-from flask_jwt_extended import jwt_required , get_jwt_identity,create_access_token,create_refresh_token,get_jwt
-from Database.db_utils import create_student_user,create_teacher_user,authenticate_user
-from flask_cors import CORS
+from fastapi import APIRouter,Response,Request,status
+from pymongo.errors import ConnectionFailure,OperationFailure,DuplicateKeyError
+from Auth.models import *
+from Auth.utils import *
 
-auth_bp = Blueprint('auth_bp',__name__,url_prefix = '/auth')
+auth_router = APIRouter()
 
-CORS(auth_bp)
-
-@auth_bp.route("/refresh", methods=["POST"])
-@jwt_required(refresh=True)
-def refresh():
-    email = get_jwt_identity()
-    access_token = create_access_token(identity=email, fresh=False)
-    return {"access_token": access_token}, 200
-
-
-@auth_bp.route("/register", methods=["POST"])
-def register():
-        data = request.get_json()
-        username = data.get("username")
-        password = data.get("password")
-        email = data.get("email")
-        teacher_id = data.get("teacher_id")
-        student_id = data.get("student_id")
-        response = None
-        if teacher_id:
-            response = create_teacher_user(username, password, email, teacher_id)
-        if student_id:
-            response = create_student_user(username, password, email, student_id)
-        if response["message"].startswith("DuplicateKeyError") or response[
-            "message"
-        ].startswith("OperationFailure"):
-            return response, 409
-
-        access_token = create_access_token(identity=response["id"], fresh=True)
-        refresh_token = create_refresh_token(identity=response["id"])
+@auth_router.post('/auth/signup',summary="Register and user and return JWT Tokens")
+async def register(user:RegisterReqModel,response:Response,request:Request) -> Response:
+    try:
+        user1 = await request.app.database["Users"].find_one({
+            user.email
+        })
+        user2 = await request.app.database["Users"].find_one({
+            user.username
+        })
+        if user1 or user2:
+            raise DuplicateKeyError
+        resp = await request.app.database["Users"].insert_one({
+            user.username,
+            user.email,
+            get_hashed_password(user.password)
+        }) 
+    except ConnectionFailure:
+        response.status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         return {
-            "message": response["message"],
-            "access_token": access_token,
-            "refresh_token": refresh_token,
+            "message" : "Something went wrong with the connection to database"
         }
-
-@auth_bp.route("/login", methods=["POST"])
-def login():
-    data = request.get_json()
-    email = data.get("email")
-    password = data.get("password")
-    response = authenticate_user(email, password)
-    if response.get("message") == "User authenticated successfully.":
-        access_token = create_access_token(identity=response["id"], fresh=True)
-        refresh_token = create_refresh_token(identity=response["id"])
+    except OperationFailure:
+        response.status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         return {
-            "message": "Logged in successfully",
+            "message" : "Insert_One Operation has failed"
+        }
+    except DuplicateKeyError:
+        response.status_code=status.HTTP_406_NOT_ACCEPTABLE
+        return{
+            "message" : "It Already Exists"
+        }
+    except:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {
+            "message":"I don't know"
+        }
+    access_token = create_access_token(str(resp._id),expires_delta=1)
+    refresh_token = create_refresh_token(str(resp._id),expires_delta=10)
+    return {
+        access_token,
+        refresh_token
+    }
+
+@auth_router.post('/auth/login',description='Login a user and return JWT Tokens',summary="Login a user and return JWT Tokens")
+async def login(user:LoginReqModel,response:Response,request:Request) -> Response:
+    try:
+        db = request.app.database
+        user = await get_user(db, user.email)
+        if not user or not verify_password(user["password"], user.password):
+            response.status_code = status.HTTP_401_UNAUTHORIZED
+            return {"message": "Invalid credentials"}
+        access_token = create_access_token(str(user["_id"]), expires_delta=1)
+        refresh_token = create_refresh_token(str(user["_id"]), expires_delta=10)
+        return {
             "access_token": access_token,
-            "refresh_token": refresh_token,
-        }, 200
-    else:
-        return {"message": "Invalid credentials"}, 401
+            "refresh_token": refresh_token
+        }
+    except ConnectionFailure:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {
+            "message": "Something went wrong with the connection to database"
+        }
+    except OperationFailure:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {
+            "message": "Operation failed"
+        }
+    except Exception as e:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {
+            "message": f"An unexpected error occurred: {str(e)}"
+        }
+        
+auth_router.get('/auth/refresh',description='Refresh the access token using the refresh token',summary="Refresh the access token")
+async def refresh_token(request: Request, response: Response):
+    try:
+        # Get the refresh token from the request
+        refresh_token = request.headers.get("Authorization")
+        if not refresh_token:
+            response.status_code = status.HTTP_401_UNAUTHORIZED
+            return {"message": "Missing refresh token or token is blocked"}
+        # Verify the refresh token
+        user_id = await verify_refresh_token(refresh_token)
+        if not user_id:
+            response.status_code = status.HTTP_401_UNAUTHORIZED
+            return {"message": "Invalid refresh token"}
+        # Create new access token
+        access_token = await create_access_token(user_id)
+        refresh_token = await create_refresh_token(user_id)
+        # Return the new tokens
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token
+        }
+    except Exception as e:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {
+            "message": f"An unexpected error occurred: {str(e)}"
+        }

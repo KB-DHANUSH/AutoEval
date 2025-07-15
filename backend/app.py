@@ -1,62 +1,50 @@
-from flask import Flask
+"""
+This is the main entry point for the FastAPI application.
+
+It sets up the database connection, middleware, and API routes.
+"""
+
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
 from dotenv import load_dotenv
 import os
-from datetime import timedelta
-from flask_jwt_extended import JWTManager,jwt_required,get_jwt
-from OCRSpace.routes import ocr_bp
-from Auth.routes import auth_bp
-from Database.routes import db_bp
-from flask_cors import CORS
+from pymongo import AsyncMongoClient
+from fastapi.middleware.cors import CORSMiddleware
 
 
-app = Flask(__name__)
-jwt = JWTManager(app)
-BLOCKLIST = set()
-CORS(app)
-
-@app.route("/", methods=["GET"])
-def home():
-    return {
-        "message": "InkGrader Backend API"
-    }
-
-@jwt.token_in_blocklist_loader
-def check_if_token_revoked(jwt_header, jwt_payload):
-    jti = jwt_payload["jti"]
-    return jti in BLOCKLIST
-
-
-@auth_bp.route("/logout", methods=["POST"])
-@jwt_required(refresh=True)
-def logout():
-    jti = get_jwt()["jti"]
-    if jti:
-        BLOCKLIST.add(jti)
-        return {"message": "Logged out successfully"}, 200
-    else:
-        return {"message": "No active token found"}, 401
-
-
-@app.errorhandler(404)
-def not_found(error):
-    return {"message": "Not found"}, 404
-
-
-if __name__ == "__main__":
-    app.register_blueprint(ocr_bp)
-    app.register_blueprint(auth_bp)
-    app.register_blueprint(db_bp)
+REFRESH_TOKEN_BLOCKLIST = set()
+@asynccontextmanager
+async def db_lifespan(app: FastAPI):
     load_dotenv()
-    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+    user = os.getenv("MONGO_DB_USERNAME")
+    pwd = os.getenv("MONGO_DB_PASSWORD")
+    if not user or not pwd:
+        raise RuntimeError("Missing MongoDB credentials")
+    uri = f"mongodb+srv://{user}:{pwd}@cluster0.bfi26pi.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+    app.mongodb_client = AsyncMongoClient(uri)
+    try:
+        ping = await app.mongodb_client.admin.command("ping")
+        if ping.get("ok") != 1:
+            raise Exception("Ping failed")
+        print("✅ Connected to MongoDB")
+    except Exception:
+        print("❌ Failed to connect to MongoDB")
+        await app.mongodb_client.close()
+        raise
+    app.database = app.mongodb_client["InkGrader"]
+    yield
+    await app.mongodb_client.close()
 
-    @jwt.token_in_blocklist_loader
-    def check_if_token_revoked(jwt_header, jwt_payload):
-        jti = jwt_payload["jti"]
-        return jti in BLOCKLIST
+app = FastAPI(lifespan=db_lifespan,debug=True)
 
-    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(minutes=30)
-    app.config["JWT_REFRESH_TOKEN_EXPIRES"] = timedelta(minutes=120)
-    app.config["JWT_SECRET_KEY"] = JWT_SECRET_KEY
-    app.config["DEBUG"] = True
-    app.config["PORT"] = os.getenv("PORT", 3000)
-    app.run()
+origins = [
+    "http://localhost:5173"
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,  # List of allowed origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)

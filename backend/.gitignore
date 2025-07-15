@@ -1,51 +1,10 @@
-# Byte-compiled / optimized files
-__pycache__/
-*.py[cod]
-
-# Virtual environment directories
 venv/
-.venv/
-ENV/
-env/
-
-# Instance folder (used by Flask for instance-specific configurations)
-instance/
-*.db
-*.sqlite
-
-# Flask cache and session files
-.flask_session/
-.webassets-cache/
-
-# Environment variables file
+*/__pycache__/*
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+db.sqlite3
+*.log
+*.pot
 .env
-
-# IDE/editor specific files
-.vscode/
-.idea/
-
-# Distribution / packaging
-dist/
-build/
-*.egg-info/
-
-# PyInstaller
-*.spec
-
-# Unit test / coverage reports
-.coverage
-.tox/
-nosetests.xml
-coverage.xml
-*.cover
-.hypothesis/
-.pytest_cache/
-
-# Jupyter Notebook checkpoints
-.ipynb_checkpoints/
-
-# macOS system files
-.DS_Store
-
-# Windows system files
-Thumbs.db
