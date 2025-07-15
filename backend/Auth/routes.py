@@ -1,5 +1,6 @@
 from fastapi import APIRouter,Response,Request,status
 from pymongo.errors import ConnectionFailure,OperationFailure,DuplicateKeyError
+from jwt import DecodeError
 from Auth.models import *
 from Auth.utils import *
 
@@ -71,29 +72,30 @@ async def login(user:LoginReqModel,response:Response,request:Request) -> Respons
             "message": f"An unexpected error occurred: {str(e)}"
         }
         
-auth_router.get('/auth/refresh',description='Refresh the access token using the refresh token',summary="Refresh the access token")
+@auth_router.get("/auth/refresh", summary="Refresh access token")
 async def refresh_token(request: Request, response: Response):
+    auth = request.headers.get("Authorization")
+    if not auth or not auth.startswith("Bearer "):
+        response.status_code = status.HTTP_401_UNAUTHORIZED
+        return {"message": "Missing or malformed Authorization header"}
+
+    token = auth.split(" ", 1)[1]
+
+    if token.count(".") != 2:
+        response.status_code = status.HTTP_401_UNAUTHORIZED
+        return {"message": "Malformed JWT token"}
+
     try:
-        # Get the refresh token from the request
-        refresh_token = request.headers.get("Authorization")
-        if not refresh_token:
-            response.status_code = status.HTTP_401_UNAUTHORIZED
-            return {"message": "Missing refresh token or token is blocked"}
-        # Verify the refresh token
-        user_id = await verify_refresh_token(refresh_token)
+        user_id = await verify_refresh_token(token)
         if not user_id:
-            response.status_code = status.HTTP_401_UNAUTHORIZED
-            return {"message": "Invalid refresh token"}
-        # Create new access token
-        access_token = await create_access_token(user_id)
-        refresh_token = await create_refresh_token(user_id)
-        # Return the new tokens
-        return {
-            "access_token": access_token,
-            "refresh_token": refresh_token
-        }
+            raise ValueError("invalid token")
+    except DecodeError:
+        response.status_code = status.HTTP_401_UNAUTHORIZED
+        return {"message": "Invalid JWT token"}
     except Exception as e:
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
-        return {
-            "message": f"An unexpected error occurred: {str(e)}"
-        }
+        return {"message": f"Unexpected error: {str(e)}"}
+
+    access = await create_access_token(user_id)
+    refresh = await create_refresh_token(user_id)
+    return {"access_token": access, "refresh_token": refresh}
