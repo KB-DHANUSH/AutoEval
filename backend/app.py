@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 import os
 from config import origins
 from Auth.routes import auth_router
+from routes import router
 from pymongo import AsyncMongoClient
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -37,7 +38,8 @@ async def db_lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=db_lifespan,debug=True)
 
-app.include_router(auth_router, prefix="/api")
+app.include_router(router)
+app.include_router(auth_router, prefix="/api/auth")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,  # List of allowed origins

@@ -6,7 +6,7 @@ from Auth.utils import *
 
 auth_router = APIRouter()
 
-@auth_router.post('/auth/register',summary="Register and user and return JWT Tokens")
+@auth_router.post('/register',summary="Register and user and return JWT Tokens")
 async def register(user:RegisterReqModel,response:Response,request:Request) -> Response:
     try:
         resp = await request.app.database["Users"].insert_one({
@@ -42,7 +42,7 @@ async def register(user:RegisterReqModel,response:Response,request:Request) -> R
         "refresh_token": refresh_token
     }
 
-@auth_router.post('/auth/login',description='Login a user and return JWT Tokens',summary="Login a user and return JWT Tokens")
+@auth_router.post('/login',description='Login a user and return JWT Tokens',summary="Login a user and return JWT Tokens")
 async def login(user:LoginReqModel,response:Response,request:Request) -> Response:
     try:
         db = request.app.database
@@ -72,7 +72,7 @@ async def login(user:LoginReqModel,response:Response,request:Request) -> Respons
             "message": f"An unexpected error occurred: {str(e)}"
         }
         
-@auth_router.get("/auth/refresh", summary="Refresh access token")
+@auth_router.get("/refresh", summary="Refresh access token")
 async def refresh_token(request: Request, response: Response):
     auth = request.headers.get("Authorization")
     if not auth or not auth.startswith("Bearer "):
