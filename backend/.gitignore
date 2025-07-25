@@ -9,3 +9,5 @@ db.sqlite3
 *.pot
 .env
 *.png
+/.pytest_cache/
+__pycache__

@@ -3,14 +3,12 @@ from typing import List, Optional, Any
 from pydantic.dataclasses import dataclass
 
 class QuestionExtractionModel(BaseModel):
-    id : int
     question: str
     marks: Optional[int] = 5
     topic: Optional[str]
     question_type: str
 
 class AnswerExtractionModel(BaseModel):
-    id : int
     answers: str
 
 

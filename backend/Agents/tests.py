@@ -2,6 +2,10 @@ from Agents.extraction_agent import ExtractionAgent
 from dotenv import load_dotenv
 from Agents.models import QuestionExtractionModel,AnswerExtractionModel
 import pytest 
+import numpy as np
+from types import SimpleNamespace
+from sklearn.pipeline import Pipeline
+from Agents.rag_pipeline import SentenceSplitter,TransformerEmbedder
 
 @pytest.mark.asyncio
 async def test_question_extraction_return_type():
@@ -86,4 +90,49 @@ async def test_answer_extraction_return_type():
     
         
 
+@pytest.fixture(scope="module")
+def sample_text():
+    return "LangChain is a powerful framework for developing applications powered by large language models. It helps with prompt chaining, memory, retrieval, and agents."
+
+@pytest.fixture(scope="module")
+def chunked_texts(sample_text):
+    splitter = SentenceSplitter(chunk_size=32, chunk_overlap=8)
+    return splitter.transform(sample_text)
+
+@pytest.fixture(scope="module")
+def mock_documents(chunked_texts):
+    # Simulate langchain Document-like structure
+    return [[SimpleNamespace(page_content=chunk) for chunk in chunked_texts]]
+
+def test_sentence_splitter_output_format(chunked_texts):
+    assert isinstance(chunked_texts, list)
+    assert all(isinstance(chunk, str) for chunk in chunked_texts)
+    assert len(chunked_texts) > 0
+
+def test_embedding_dimensions(mock_documents):
+    embedder = TransformerEmbedder(batch_size=4)
+    embedder.fit(None)
+
+    embeddings = embedder.transform(mock_documents)
     
+    assert isinstance(embeddings, np.ndarray)
+    assert embeddings.ndim == 2
+    assert embeddings.shape[0] == len(mock_documents[0])
+    assert embeddings.shape[1] in [384, 768]  # Depends on model used
+
+def test_full_pipeline(sample_text):
+    pipe = Pipeline([
+        ("splitter", SentenceSplitter(chunk_size=32, chunk_overlap=8)),
+        ("embedder", TransformerEmbedder(batch_size=4))
+    ])
+    # Wrap chunks into Document-like object
+    class FakeDoc:
+        def __init__(self, content): self.page_content = content
+
+    # Run sentence splitting
+    chunks = pipe.named_steps['splitter'].transform(sample_text)
+    # Reshape for embedder
+    docs = [[FakeDoc(c) for c in chunks]]
+    embeddings = pipe.named_steps['embedder'].transform(docs)
+
+    assert embeddings.shape[0] == len(chunks) 
