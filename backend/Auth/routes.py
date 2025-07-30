@@ -14,8 +14,8 @@ async def register(user:RegisterReqModel,response:Response,request:Request) -> R
             "email": user.email,
             "password": await get_hashed_password(user.password)
         })
-        access_token = await create_access_token(str(resp.inserted_id),expires_delta=1)
-        refresh_token = await create_refresh_token(str(resp.inserted_id),expires_delta=10)
+        access_token = await create_access_token(str(resp.inserted_id),expires_delta=10)
+        refresh_token = await create_refresh_token(str(resp.inserted_id),expires_delta=20)
     except ConnectionFailure as err:
         response.status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         return {
@@ -50,8 +50,8 @@ async def login(user:LoginReqModel,response:Response,request:Request) -> Respons
         if not user_db or not await verify_password(user.password, user_db["password"]):
             response.status_code = status.HTTP_401_UNAUTHORIZED
             return {"message": "Invalid credentials"}
-        access_token = await create_access_token(str(user_db["_id"]), expires_delta=1)
-        refresh_token = await create_refresh_token(str(user_db["_id"]), expires_delta=10)
+        access_token = await create_access_token(str(user_db["_id"]), expires_delta=10)
+        refresh_token = await create_refresh_token(str(user_db["_id"]), expires_delta=20)
         return {
             "access_token": access_token,
             "refresh_token": refresh_token
