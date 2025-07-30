@@ -1,5 +1,5 @@
 from pydantic_ai import Agent
-from Agents.models import QuestionExtractionModel,AnswerExtractionModel,AgentDeps
+from Agents.models import QuestionExtractionModel,AnswerExtractionModel,ExtractionAgentDeps
 import os
 from httpx import AsyncClient
 from typing import List
@@ -11,8 +11,8 @@ class ExtractionAgent:
         self._agent_settings = {
             "temperature": 0.2
         }
-        self._API_KEY = os.getenv("OCR_API_KEY")
-        self._deps = AgentDeps(api_key=self._API_KEY, http_client=AsyncClient)
+        self._API_KEY = os.getenv("GROQ_API_KEY")
+        self._deps = ExtractionAgentDeps(api_key=self._API_KEY, http_client=AsyncClient)
     
     async def extract_questions(self,questions: str)->List[QuestionExtractionModel]:
         self._agent = Agent(

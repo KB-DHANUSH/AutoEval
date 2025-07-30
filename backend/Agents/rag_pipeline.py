@@ -59,9 +59,7 @@ class TransformerEmbedder(BaseEstimator, TransformerMixin):
         for docs in X_docs:
             for i in range(0, len(docs), self.batch_size):
                 batch = docs[i : i + self.batch_size]
-                texts = [doc.page_content for doc in batch]
-
-                enc = self.tokenizer(texts, padding=True, truncation=True, return_tensors='np')
+                enc = self.tokenizer(batch, padding=True, truncation=True, return_tensors='np')
                 inputs = {k: v for k, v in enc.items()}
 
                 outputs = self.ov_model(**inputs)
