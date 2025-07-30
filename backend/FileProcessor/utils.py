@@ -9,7 +9,7 @@ import os
 from FileProcessor import OcrAPI, FileContentType, Engine
 from pypdf import PdfReader
 from io import BytesIO
-from models import ExamForm
+from models import *
 from Agents.extraction_agent import ExtractionAgent
 from pymongo.database import Database
 from Agents.rag_pipeline import *
@@ -17,10 +17,14 @@ from sklearn.pipeline import Pipeline
 from pypdf import PdfReader
 from io import BytesIO
 import faiss
-from helpers import *
+from typing import Annotated
+from fastapi import File, UploadFile
+from FileProcessor.helpers import *
 
 
-async def extract_and_save_questions(form: ExamForm, db: Database, user_id: ObjectId):
+async def extract_and_save_questions(
+    form: SubmitQuestionForm, db: Database, user_id: ObjectId
+):
     """
     Extracts questions from the uploaded exam file (PDF or TXT), processes them,
     and saves the extracted questions to the database.
@@ -33,18 +37,15 @@ async def extract_and_save_questions(form: ExamForm, db: Database, user_id: Obje
     Returns:
         None
     """
-    questions_filename = form.exam_questions.filename
-    questions_file = BytesIO(form.exam_questions.read())
+    questions_filename = form.questions.filename
+    questions_file = BytesIO(await form.questions.read())
+    questions = ""
     if questions_filename.endswith(".txt"):
         questions = questions_file.getvalue().decode("utf-8")
         extraction_agent = ExtractionAgent()
-        extracted_questions = extraction_agent.extract_questions(questions)
-        await save_questions_in_db(
-            user_id=user_id, questions=extracted_questions, db=db
-        )
+        extracted_questions = await extraction_agent.extract_questions(questions)
     elif questions_filename.endswith(".pdf"):
         reader = PdfReader(questions_file)
-        questions = ""
         for page in reader.pages:
             if file_type(page) == FileContentType.IMG:
                 ocr_engine2 = OcrAPI(
@@ -54,11 +55,14 @@ async def extract_and_save_questions(form: ExamForm, db: Database, user_id: Obje
                 questions += ocr_engine2.ocr_base64(image_b64)
             elif file_type(page) == FileContentType.TEXT:
                 questions += page.extract_text()
-        extraction_agent = ExtractionAgent()
-        extracted_questions = extraction_agent.extract_questions(questions)
-        await save_questions_in_db(
-            user_id=user_id, questions=extracted_questions, db=db
-        )
+    extraction_agent = ExtractionAgent()
+    extracted_questions = await extraction_agent.extract_questions(questions)
+    await save_questions_in_db(
+        user_id=user_id,
+        exam_name=form.exam_name,
+        questions=extracted_questions,
+        db=db,
+    )
 
 
 def extract_text_from_pdf(pdf_bytes: BytesIO) -> str:
@@ -76,7 +80,9 @@ def extract_text_from_pdf(pdf_bytes: BytesIO) -> str:
     return "\n".join(pages)
 
 
-def process_rag_material(form: ExamForm, index_name: str = "rag-materials"):
+async def process_rag_material(
+    form: SubmitRagFileForm, db: Database, user_id: ObjectId
+):
     """
     Processes RAG material from the uploaded file, splits and embeds text,
     and creates a FAISS index for semantic search.
@@ -88,7 +94,7 @@ def process_rag_material(form: ExamForm, index_name: str = "rag-materials"):
     Returns:
         None
     """
-    data = BytesIO(form.rag_material.read())
+    data = BytesIO(await form.rag_material.read())
     fname = form.rag_material.filename.lower()
     if fname.endswith(".pdf"):
         content = extract_text_from_pdf(data)
@@ -97,34 +103,30 @@ def process_rag_material(form: ExamForm, index_name: str = "rag-materials"):
     else:
         raise ValueError("Unsupported file type; use .txt or .pdf")
 
-    pipeline = Pipeline(
-        [
-            ("splitter", SentenceSplitter(chunk_size=256, chunk_overlap=20)),
-            (
-                "embedder",
-                TransformerEmbedder(
-                    model_name="sentence-transformers/all-MiniLM-L6-v2",
-                    device="cpu",
-                    batch_size=16,
-                ),
-            ),
-        ]
+    embedder = TransformerEmbedder()
+    splitter = SentenceSplitter()
+    content = [content]
+    chunks = splitter.transform(content)
+    embeddings = embedder.transform(chunks)
+    await db["Chunks"].insert_one(
+        {"exam_name": form.exam_name, "user_id": user_id, "chunks": chunks}
     )
-    chunks = [content]
-    embeddings = pipeline.fit_transform(chunks)  # shape (num_chunks, dim)
-    chunk_texts = pipeline.named_steps["splitter"].transform(chunks)
     dim = embeddings.shape[1]
     index = faiss.IndexFlatL2(dim)
     embeddings = np.array(embeddings, dtype="float32")
     index.add(embeddings)
-    total = index.ntotal
-
     os.makedirs("faiss_indexes", exist_ok=True)
+    index_name = f"{form.exam_name}_{str(user_id)}.faiss"
     path = os.path.join("faiss_indexes", index_name)
     faiss.write_index(index, path)
 
 
-async def extract_and_save_answers(form: ExamForm, db: Database, user_id: ObjectId):
+async def extract_and_save_answers(
+    exam_name: str,
+    file: Annotated[UploadFile, File(...)],
+    db: Database,
+    user_id: ObjectId,
+):
     """
     Extracts answers from the uploaded RAG material file (PDF or TXT), processes them,
     and saves the extracted answers to the database.
@@ -137,8 +139,8 @@ async def extract_and_save_answers(form: ExamForm, db: Database, user_id: Object
     Returns:
         None
     """
-    data = BytesIO(form.rag_material.read())
-    filename = form.rag_material.filename.lower()
+    data = BytesIO(await file.read())
+    filename = file.filename.lower()
     answers = ""
     if filename.endswith(".txt"):
         answers = data.getvalue().decode("utf-8")
@@ -154,5 +156,12 @@ async def extract_and_save_answers(form: ExamForm, db: Database, user_id: Object
             elif file_type(page) == FileContentType.TEXT:
                 answers += page.extract_text()
     extraction_agent = ExtractionAgent()
-    extracted_questions = extraction_agent.extract_answers(answers)
-    await save_answers_in_db(user_id=user_id, answers=extracted_questions, db=db)
+    questions = db["Questions"].find({"_id": user_id, "exam_name": exam_name})
+    query = "Question Paper:\n"
+    for question in questions:
+        query += question["question_id"] + " " + question["question"] + "\n"
+    query += "\nAnswer Body to be extracted\n\n" + answers
+    extracted_questions = await extraction_agent.extract_answers(query)
+    await save_answers_in_db(
+        user_id=user_id, exam_name=exam_name, answers=extracted_questions, db=db,file_name=filename
+    )
