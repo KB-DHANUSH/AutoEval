@@ -6,6 +6,8 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
+from redis_pubsub import PubSubManager
+import asyncio
 from pymongo.database import Database
 from models import *
 from Auth.utils import get_current_user
@@ -15,12 +17,13 @@ from FileProcessor.utils import (
     extract_and_save_answers,
 )
 from Auth.utils import ALGORITHM, JWT_SECRET_KEY
-import jwt
+from jwt import decode as jwt_decode, PyJWTError
 from Agents.grading_agent import GradingAgent
-from config import ConnectionManager
+from config import ConnectionManager, running_tasks, task_lock
 from bson import ObjectId
 
 exam_router = APIRouter()
+conn_manager = ConnectionManager()
 
 
 @exam_router.post("/form/submit/questions")
@@ -66,20 +69,20 @@ async def submit_rag_file(
     response.status_code = 201
     return {"message": "Done Submitting rag material"}
 
-async def grading_task(db: Database,exam_name:str, user_id: ObjectId): 
-    questions_list = await db["Questions"].find({
-        "user_id": user_id,
-        "exam_name": exam_name
-    })
-    answer_paper_list = await db["Answers"].find({
-        "user_id": user_id,
-        "exam_name": exam_name
-    })
-    qa=''
+
+async def grading_task(db: Database, exam_name: str, user_id: ObjectId):
+    questions_list = await db["Questions"].find(
+        {"user_id": user_id, "exam_name": exam_name}
+    )
+    answer_paper_list = await db["Answers"].find(
+        {"user_id": user_id, "exam_name": exam_name}
+    )
+    qa = ""
+    pubsub = PubSubManager()
     for answer_paper in answer_paper_list:
-        paper_string = ''
+        paper_string = ""
         for question_info in questions_list["questions"]:
-            if question_info['exam_name'] == exam_name:
+            if question_info["exam_name"] == exam_name:
                 qa += f"{question_info['question_id']}. {question_info['question']}\n"
                 qa += f"Question Topic: {question_info['topic']}\n"
                 qa += f"Question Type: {question_info['question_type']}\n"
@@ -89,35 +92,76 @@ async def grading_task(db: Database,exam_name:str, user_id: ObjectId):
         results = await agent.grade(paper_string)
         for result in results:
             await db["Answers"].update_one(
-                {"user_id" :user_id, "exam_name": exam_name, "file_name": result["file_name"], "answers.question_id": result["question_id"]},
-                {"$set": {"answers.marks": result["marks"]}}
+                {
+                    "user_id": user_id,
+                    "exam_name": exam_name,
+                    "file_name": result["file_name"],
+                    "answers.question_id": result["question_id"],
+                },
+                {"$set": {"answers.marks": result["marks"]}},
             )
+        await pubsub.publish(
+            channel=f"{user_id}:{exam_name}",
+            message=f"marks updated for filename {result['file_name']}",
+        )
 
 
 @exam_router.websocket_route("/{exam_name}")
 async def exam_socket(websocket: WebSocket, exam_name: str):
-    token = websocket.query_params.get("token")
-    manager = ConnectionManager()
-    db = websocket.app.database
-    if not token:
-        await WebSocket.close(code=1008)
-        return
+    pubsub = PubSubManager()
+    token = websocket.headers.get("Authorization", "").split(" ")[-1]
     try:
-        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[ALGORITHM])
-        user_id = str(payload.get("sub"))
-    except jwt.PyJWTError:
-        await websocket.close(code=1080)
+        subject = jwt_decode(token, key=JWT_SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = subject.get("sub")
+        if not user_id:
+            raise ValueError("Missing sub")
+    except (PyJWTError, ValueError):
+        await websocket.close(code=1008, reason="Invalid token")
         return
 
-    await manager.connect(websocket, user_id)
+    task_key = f"{user_id}:{exam_name}"
+    redis_channel = f"{user_id}:{exam_name}"
+    redis_pubsub = await pubsub.subscribe(redis_channel)
+    async with task_lock:
+        if task_key not in running_tasks:
+            task = asyncio.create_task(
+                grading_task(
+                    db=websocket.app.database,
+                    exam_name=exam_name,
+                    user_id=ObjectId(user_id),
+                )
+            )
+            running_tasks[task_key] = task
+
+    await conn_manager.connect(websocket, user_id)
+
     try:
         while True:
-            data = await websocket.receive_json()
-            agent = GradingAgent(exam_name=exam_name, user_id=ObjectId(user_id), db=db)
-            results = await agent.grade()
-            await manager.send_personal_message(
-                {"reply": "You said", "data": results}, user_id
-            )
+            data = await websocket.receive_text()
+            async for message in redis_pubsub.listen():
+                if message["type"] == "message":
+
+                    answers_info_list = await websocket.app.database["Answers"].find(
+                        {
+                            "user_id": ObjectId(user_id),
+                            "exam_name": exam_name,
+                        }
+                    )
+                    data = []
+                    for answer_info in answers_info_list:
+                        total_marks = sum(
+                            answer["marks"]
+                            for answer in answer_info.get("answers", [])
+                            if "marks" in answer
+                        )
+                        data.append(
+                            {
+                                "file_name": answer_info["file_name"],
+                                "total_marks": total_marks,
+                            }
+                        )
+                    await conn_manager.send_personal_message(
+                        {"message": data, "exam_name": exam_name}, user_id
+                    )
     except WebSocketDisconnect:
-        
-        manager.disconnect(user_id)
+        await conn_manager.disconnect(websocket, user_id)
