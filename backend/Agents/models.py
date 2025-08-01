@@ -10,7 +10,7 @@ class QuestionExtractionModel(BaseModel):
     topic: Optional[str]
     question_type: str
     
-    @field_validator("marks",mode="after")
+    @field_validator("marks",mode="before")
     @classmethod
     def default_marks(cls, value, info):
         return value if value is not None else cls.model_fields["marks"].get_default()
@@ -43,6 +43,5 @@ class GradingAgentDeps:
         arbitrary_types_allowed = True
 
 class GradingAgentOutput(BaseModel):
-    question: str
-    answer: str
+    question_id:int = Field(...,description="id that reprsents the question order")
     marks: int
