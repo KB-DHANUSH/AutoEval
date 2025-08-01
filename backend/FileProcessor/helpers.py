@@ -25,34 +25,23 @@ def extract_text_from_pdf(pdf_bytes: BytesIO) -> str:
 async def save_questions_in_db(
     user_id: ObjectId,exam_name: str, questions: List[QuestionExtractionModel], db: Database
 ):
-    query = []
-
-    for question in questions:
-        query.append({
+    questions_list = [question.dict() for question in questions]
+    await db["Questions"].insert_one({
             "user_id": user_id,
-            "question_id": question.question_id,
             "exam_name": exam_name,
-            "question": question.question,
-            "marks": question.marks,
-            "topic": question.topic,
-            "question_type": question.question_type,
+            "questions": questions_list
         })
-    await db["Questions"].insert_many(query)
     
 async def save_answers_in_db(
     user_id: ObjectId, exam_name:str, answers: List[AnswerExtractionModel], db: Database,file_name: str
 ):
-    query = []
-
-    for answer in answers:
-        query.append({
-            "user_id": user_id,
-            "question_id": answer.question_id,
-            "exam_name": exam_name,
-            "answer": answer.answers,
-            "answer_id": file_name
-        })
-    await db["Answers"].insert_many(query)
+    answer_dicts =[answer.dict() for answer in answers]
+    await db["Answers"].insert_one({
+        "exam_name": exam_name,
+        "user_id": user_id,
+        "file_name": file_name,
+        "answers": answer_dicts,
+    })  
     
 def file_type(page: PageObject) -> FileContentType:
     text = page.extract_text()

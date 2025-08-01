@@ -161,7 +161,7 @@ async def extract_and_save_answers(
     for question in questions:
         query += question["question_id"] + " " + question["question"] + "\n"
     query += "\nAnswer Body to be extracted\n\n" + answers
-    extracted_questions = await extraction_agent.extract_answers(query)
+    extracted_answers = await extraction_agent.extract_answers(query)
     await save_answers_in_db(
-        user_id=user_id, exam_name=exam_name, answers=extracted_questions, db=db,file_name=filename
+        user_id=user_id, exam_name=exam_name, answers=extracted_answers, db=db,file_name=filename
     )
