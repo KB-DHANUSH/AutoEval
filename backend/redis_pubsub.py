@@ -1,8 +1,8 @@
 import aioredis
 import os
 
-class RedisPubSub:
-    def __init__(self, redis_url: str, redis_port: int, redis_username: str, redis_password: str):
+class PubSubManager:
+    def __init__(self):
         self.redis_url = os.getenv("REDIS_URL", "redis://localhost")
         self.redis_port = os.getenv("REDIS_PORT", 6379)
         self.redis_username = os.getenv("REDIS_USERNAME", "default")
@@ -28,3 +28,8 @@ class RedisPubSub:
     async def close(self):
         if self.redis:
             await self.redis.close()
+    
+    def is_subscribed(self, channel: str) -> bool:
+        if self.redis:
+            return channel in self.redis.pubsub_channels
+        return False
