@@ -16,7 +16,7 @@ class ExtractionAgent:
     
     async def extract_questions(self,questions: str)->List[QuestionExtractionModel]:
         self._agent = Agent(
-            model='groq:mistral-saba-24b',
+            model='groq:moonshotai/kimi-k2-instruct',
             system_prompt=QUESTION_EXTRACTION_PROMPT,
             output_type=List[QuestionExtractionModel],
             deps_type=self._deps,
@@ -27,7 +27,7 @@ class ExtractionAgent:
     
     async def extract_answers(self,answers: str)->List[AnswerExtractionModel]:
         self._agent = Agent(
-            model='groq:mistral-saba-24b',
+            model='groq:moonshotai/kimi-k2-instruct',
             system_prompt=ANSWER_EXTRACTION_PROMPT,
             output_type=List[AnswerExtractionModel],
             deps_type=self._deps,
