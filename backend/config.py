@@ -1,8 +1,5 @@
 from fastapi import WebSocket
-origins = [
-    "http://localhost:5173"
-]
-REFRESH_TOKEN_BLOCKLIST = set()
+import asyncio
 
 class ConnectionManager:
     def __init__(self):
@@ -19,3 +16,11 @@ class ConnectionManager:
         ws = self.active_connections.get(user_id)
         if ws:
             await ws.send_json(message)
+
+origins = [
+    "http://localhost:5173"
+]
+REFRESH_TOKEN_BLOCKLIST = set()
+
+running_tasks: dict[str, asyncio.Task] = {}
+task_lock = asyncio.Lock()
