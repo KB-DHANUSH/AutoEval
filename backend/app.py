@@ -14,6 +14,8 @@ from routes import exam_router
 from pymongo import AsyncMongoClient
 from fastapi.middleware.cors import CORSMiddleware
 
+load_dotenv()
+
 @asynccontextmanager
 async def db_lifespan(app: FastAPI):
     load_dotenv()
