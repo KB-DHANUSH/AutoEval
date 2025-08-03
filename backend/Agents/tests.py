@@ -1,138 +1,31 @@
-from Agents.extraction_agent import ExtractionAgent
+import asyncio
+from bson import ObjectId
+from pymongo import MongoClient
+from grading_agent import GradingAgent
 from dotenv import load_dotenv
-from Agents.models import QuestionExtractionModel,AnswerExtractionModel
-import pytest 
-import numpy as np
-from types import SimpleNamespace
-from sklearn.pipeline import Pipeline
-from Agents.rag_pipeline import SentenceSplitter,TransformerEmbedder
+import os
 
-@pytest.mark.asyncio
-async def test_question_extraction_return_type():
+async def main():
+    exam_id = "688f8bad4947fe3beb60bcb1"
+    user_id = ObjectId("68767f6b8e62c0b8cc32805b")  # Replace with valid ObjectId if needed
     load_dotenv()
-    questions = """
-    1. What is cloud computing, and how does it differ from traditional computing? (5 marks)
-    2. Explain the main service models of cloud computing: IaaS, PaaS, and SaaS. (6 marks)
-    3. Describe the key benefits of using cloud computing for businesses. (4 marks)
-    4. How does virtualization support cloud computing infrastructure? (5 marks)
-    5. Differentiate between public, private, and hybrid cloud deployment models. (6 marks)
-    6. What are the major security challenges in cloud computing, and how can they be mitigated? (7 marks)
-    7. Explain how scalability works in the cloud. What is auto-scaling? (5 marks)
-    8. What is serverless computing, and what are its advantages and disadvantages? (6 marks)
-    9. How do cloud providers ensure data availability, fault tolerance, and redundancy? (5 marks)
-    10. List and briefly describe any three popular cloud platforms and one key service offered by each. (6 marks)
-    """
-    agent = ExtractionAgent()
-    output = await agent.extract_questions(questions)
-    assert isinstance(output, list), "Expected a list"
+    user = os.getenv("MONGO_DB_USERNAME")
+    pwd = os.getenv("MONGO_DB_PASSWORD")
+    if not user or not pwd:
+        raise RuntimeError("Missing MongoDB credentials")
+    uri = f"mongodb+srv://{user}:{pwd}@cluster0.bfi26pi.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+    client = MongoClient(uri)
+    db = client["InkGrader"]
+    agent = GradingAgent(exam_id=exam_id, user_id=user_id, db=db)
 
-    assert output, "Expected at least one question"
-    for item in output:
-        assert isinstance(item, QuestionExtractionModel), (
-            f"Expected QuestionExtractionModel, " 
-            f"got {type(item)} with content {item!r}"
-        )
-    print(output)
-    
-@pytest.mark.asyncio
-async def test_answer_extraction_return_type():
-    load_dotenv()
-    answers = """
-    1. What is cloud computing, and how does it differ from traditional computing? (5 marks)
-    Cloud computing delivers computing resources—like servers, storage, databases, networking, and software—over the internet (“the cloud”) on a pay-as-you-go model. Unlike traditional on-premises setups, cloud computing offers on-demand scaling, minimal capital investment, and managed infrastructure maintenance.
+    query = "Question\nExplain the different types of distributed system models used in cloud computing (5 marks).Answer\n"
+    query += '''
+Distributed systems can be categorized into several models based on their architecture and communication methods. The main types include:
+1. **Client-Server Model**: In this model, clients request services from servers,
+    '''
+    result = await agent.grade(query)
 
-    2. Explain the main service models of cloud computing: IaaS, PaaS, and SaaS. (6 marks)
-    - IaaS (Infrastructure as a Service): Provides virtual machines, networks, and storage (e.g. AWS EC2).
-    - PaaS (Platform as a Service): Offers runtime environments and development tools (e.g. Azure App Services).
-    - SaaS (Software as a Service): Delivers fully managed applications to end users via the internet (e.g. Gmail or Office 365).
+    print("Grading Result:", result)
 
-    3. Describe the key benefits of using cloud computing for businesses. (4 marks)
-    Cost-efficiency (no upfront infrastructure cost); scalability and elasticity; faster time-to-market; global access and collaboration; enhanced reliability through built-in redundancy and backups.
-
-    4. How does virtualization support cloud computing infrastructure? (5 marks)
-    Virtualization creates multiple virtual machines on a single physical server, allowing dynamic resource allocation, efficient utilization, and quick provisioning of isolated environments.
-
-    5. Differentiate between public, private, and hybrid cloud deployment models. (6 marks)
-    - Public cloud: Shared infrastructure provided over the internet (e.g. AWS, GCP).
-    - Private cloud: Dedicated infrastructure for one organization, either on-prem or hosted.
-    - Hybrid cloud: A mix of public and private, enabling data and workload portability between environments.
-
-    6. What are the major security challenges in cloud computing, and how can they be mitigated? (7 marks)
-    Challenges include data breaches, misconfigured services, insider threats, and weak identity controls. Mitigation strategies: encryption at rest and in transit, robust IAM and zero-trust policies, regular audits, and proper configuration management.
-
-    7. Explain how scalability works in the cloud. What is auto-scaling? (5 marks)
-    Scalability allows resources to increase or decrease with demand. Auto-scaling automatically adjusts compute capacity based on defined metrics like CPU usage or traffic, ensuring cost-efficiency and performance.
-
-    8. What is serverless computing, and what are its advantages and disadvantages? (6 marks)
-    Serverless (Function-as-a-Service) allows running code without managing servers.  
-    Advantages: no server management, automatic scaling, pay-per-use.  
-    Disadvantages: possible cold-start latency, limited execution time, less control over environment, potential vendor lock-in.
-
-    9. How do cloud providers ensure data availability, fault tolerance, and redundancy? (5 marks)
-    They replicate data and services across multiple zones and regions, use failover strategies, provide automated backups, and maintain disaster-recovery setups.
-
-    10. List and briefly describe any three popular cloud platforms and one key service offered by each. (6 marks)
-    - AWS: Offers EC2 for virtual machines.  
-    - Microsoft Azure: Provides Azure Virtual Machines for hybrid and enterprise workloads.  
-    - Google Cloud Platform: Supplies Cloud Storage for scalable, global object storage.
-    """
-
-    agent = ExtractionAgent()
-    output = await agent.extract_answers(answers)
-    assert isinstance(output,list), "Expected a list"
-    assert output, "Expected at least one question"
-    for item in output:
-        assert isinstance(item, AnswerExtractionModel), (
-            f"Expected QuestionExtractionModel, " 
-            f"got {type(item)} with content {item!r}"
-        )
-    print(output)
-    
-        
-
-@pytest.fixture(scope="module")
-def sample_text():
-    return "LangChain is a powerful framework for developing applications powered by large language models. It helps with prompt chaining, memory, retrieval, and agents."
-
-@pytest.fixture(scope="module")
-def chunked_texts(sample_text):
-    splitter = SentenceSplitter(chunk_size=32, chunk_overlap=8)
-    return splitter.transform(sample_text)
-
-@pytest.fixture(scope="module")
-def mock_documents(chunked_texts):
-    # Simulate langchain Document-like structure
-    return [[SimpleNamespace(page_content=chunk) for chunk in chunked_texts]]
-
-def test_sentence_splitter_output_format(chunked_texts):
-    assert isinstance(chunked_texts, list)
-    assert all(isinstance(chunk, str) for chunk in chunked_texts)
-    assert len(chunked_texts) > 0
-
-def test_embedding_dimensions(mock_documents):
-    embedder = TransformerEmbedder(batch_size=4)
-    embedder.fit(None)
-
-    embeddings = embedder.transform(mock_documents)
-    
-    assert isinstance(embeddings, np.ndarray)
-    assert embeddings.ndim == 2
-    assert embeddings.shape[0] == len(mock_documents[0])
-    assert embeddings.shape[1] in [384, 768]  # Depends on model used
-
-def test_full_pipeline(sample_text):
-    pipe = Pipeline([
-        ("splitter", SentenceSplitter(chunk_size=32, chunk_overlap=8)),
-        ("embedder", TransformerEmbedder(batch_size=4))
-    ])
-    # Wrap chunks into Document-like object
-    class FakeDoc:
-        def __init__(self, content): self.page_content = content
-
-    # Run sentence splitting
-    chunks = pipe.named_steps['splitter'].transform(sample_text)
-    # Reshape for embedder
-    docs = [[FakeDoc(c) for c in chunks]]
-    embeddings = pipe.named_steps['embedder'].transform(docs)
-
-    assert embeddings.shape[0] == len(chunks) 
+if __name__ == "__main__":
+    asyncio.run(main())

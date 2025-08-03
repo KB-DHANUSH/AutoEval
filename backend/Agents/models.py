@@ -36,7 +36,7 @@ class GradingAgentDeps:
     api_key: str
     http_client: Any
     user_id: Any
-    exam_name: str
+    exam_id: str
     db: Any
 
     class Config:

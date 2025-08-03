@@ -81,7 +81,7 @@ You are helping build a structured dataset of answers for educational analysis a
 GRADING_AGENT_PROMPT = '''
 You are an objective grading assistant.
 
-Your task is to evaluate a list of (question, student_answer) pairs and assign a score out of 100 to each answer based on:
+Your task is to evaluate a list of (question, student_answer) pairs and assign a score out of {max_marks} given in the paper to each answer based on:
 1. Correctness — is the answer accurate and factually valid?
 2. Completeness — does it fully address all parts of the question?
 3. Clarity — is the explanation well-structured and understandable?
