@@ -23,9 +23,9 @@ def extract_text_from_pdf(pdf_bytes: BytesIO) -> str:
     return "\n".join(text)
 
 async def save_questions_in_db(
-    user_id: ObjectId,exam_name: str, questions: List[QuestionExtractionModel], db: Database
+    user_id: ObjectId, exam_name: str, questions: List[QuestionExtractionModel], db: Database
 ):
-    questions_list = [question.dict() for question in questions]
+    questions_list = [question.model_dump() for question in questions]
     await db["Questions"].insert_one({
             "user_id": user_id,
             "exam_name": exam_name,
@@ -33,11 +33,11 @@ async def save_questions_in_db(
         })
     
 async def save_answers_in_db(
-    user_id: ObjectId, exam_name:str, answers: List[AnswerExtractionModel], db: Database,file_name: str
+    user_id: ObjectId, exam_id: ObjectId, answers: List[AnswerExtractionModel], db: Database, file_name: str
 ):
-    answer_dicts =[answer.dict() for answer in answers]
+    answer_dicts = [answer.model_dump() for answer in answers]
     await db["Answers"].insert_one({
-        "exam_name": exam_name,
+        "exam_id": exam_id,
         "user_id": user_id,
         "file_name": file_name,
         "answers": answer_dicts,

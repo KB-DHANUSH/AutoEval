@@ -108,8 +108,12 @@ async def process_rag_material(
     content = [content]
     chunks = splitter.transform(content)
     embeddings = embedder.transform(chunks)
+    fetch_results = await db["Questions"].find_one({
+        "exam_name": form.exam_name,
+        "user_id": user_id
+    })
     await db["Chunks"].insert_one(
-        {"exam_name": form.exam_name, "user_id": user_id, "chunks": chunks}
+        {"exam_id": fetch_results["_id"], "user_id": user_id, "chunks": chunks}
     )
     dim = embeddings.shape[1]
     index = faiss.IndexFlatL2(dim)
@@ -156,12 +160,16 @@ async def extract_and_save_answers(
             elif file_type(page) == FileContentType.TEXT:
                 answers += page.extract_text()
     extraction_agent = ExtractionAgent()
-    questions = db["Questions"].find({"_id": user_id, "exam_name": exam_name})
+    questions = db["Questions"].find({"user_id": user_id, "exam_name": exam_name})
     query = "Question Paper:\n"
     for question in questions:
         query += question["question_id"] + " " + question["question"] + "\n"
     query += "\nAnswer Body to be extracted\n\n" + answers
     extracted_answers = await extraction_agent.extract_answers(query)
+    find_result = await db["Questions"].find_one({
+        "exam_name": exam_name,
+        "user_id": user_id
+    })
     await save_answers_in_db(
-        user_id=user_id, exam_name=exam_name, answers=extracted_answers, db=db,file_name=filename
+        user_id=user_id, exam_id=find_result["_id"], answers=extracted_answers, db=db,file_name=filename
     )
