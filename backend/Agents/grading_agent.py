@@ -31,7 +31,7 @@ class GradingAgent:
             system_prompt=GRADING_AGENT_PROMPT,
             model_settings=self._agent_settings,
             deps_type=GradingAgentDeps,
-            output_type=List[GradingAgentOutput],
+            output_type=GradingAgentOutput,
             tools=[
                 duckduckgo_search_tool(),
                 Tool(rag_tool, takes_ctx=True)
@@ -39,10 +39,10 @@ class GradingAgent:
         )
         logger.info("GradingAgent initialized successfully.")
 
-    async def grade(self, query: str):
+    async def grade(self, query: str) -> GradingAgentOutput:
         logger.info(f"Grading started for query: {query[:100]}...")
         try:
-            response = await self.agent.run(query,deps=self.deps, infer_name=False)
+            response = await self.agent.run(query, deps=self.deps, infer_name=False)
             logger.info("Grading completed successfully.")
             return response.output
         except Exception as e:

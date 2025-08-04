@@ -56,17 +56,16 @@ class TransformerEmbedder(BaseEstimator, TransformerMixin):
 
     def transform(self, X_docs):
         all_embeddings = []
-        for docs in X_docs:
-            for i in range(0, len(docs), self.batch_size):
-                batch = docs[i : i + self.batch_size]
-                enc = self.tokenizer(batch, padding=True, truncation=True, return_tensors='np')
-                inputs = {k: v for k, v in enc.items()}
+        for i in range(0, len(X_docs), self.batch_size):
+            batch = X_docs[i : i + self.batch_size]
+            enc = self.tokenizer(batch, padding=True, truncation=True, return_tensors='np')
+            inputs = {k: v for k, v in enc.items()}
 
-                outputs = self.ov_model(**inputs)
-                hidden = outputs.last_hidden_state
-                attn = inputs['attention_mask']  
+            outputs = self.ov_model(**inputs)
+            hidden = outputs.last_hidden_state
+            attn = inputs['attention_mask']  
 
-                pooled = self.mean_pooling(hidden, attn)
-                all_embeddings.append(pooled)
+            pooled = self.mean_pooling(hidden, attn)
+            all_embeddings.append(pooled)
 
         return np.vstack(all_embeddings)

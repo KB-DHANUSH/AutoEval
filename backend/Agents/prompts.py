@@ -92,10 +92,9 @@ Instructions:
 - Evaluate each answer independently.
 - Do not include explanations or reasoning in the output.
 
-Return your result as a list, where each item corresponds to one (question, answer) pair and follows this format:
-[
-  { "marks": <percentage score from 0 to max_marks> },
-  { "marks": <percentage score from 0 to max_marks> },
-  ...
-]
+Return your result in the following format:
+{
+    "question_id": <int> (order of the question),
+    "marks": <int> (score out of {max_marks})
+}
 '''
