@@ -6,6 +6,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
+import json
 from redis_pubsub import PubSubManager
 import asyncio
 from pymongo.database import Database
@@ -77,44 +78,43 @@ async def submit_rag_file(
 
 
 async def grading_task(db: Database, exam_id: str, user_id: ObjectId):
-    questions_list = await db["Questions"].find_one(
-        {"user_id": user_id, "_id": ObjectId(exam_id)}
-    )
-    answer_paper_list =  db["Answers"].find(
-        {"user_id": user_id, "exam_id": ObjectId(exam_id)}
-    )
-    answer_paper_list = await answer_paper_list.to_list(length=None)
-    qa = ""
-    pubsub = PubSubManager()
-    print("Starting grading task")
-    for answer_paper in answer_paper_list:
-        paper_string = ""
-        for question_info in questions_list["questions"]:
-            qa += f"{question_info['question_id']}. {question_info['question']}\n"
-            qa += f"Question Topic: {question_info['topic']}\n"
-            qa += f"Question Type: {question_info['question_type']}\n"
-            qa += f"Answer: {answer_paper['answers'][0]['answers']}\n\n"
-        print(f"Grading paper for {answer_paper['file_name']}")
-        paper_string += qa
-        agent = GradingAgent(exam_id=exam_id, user_id=str(user_id), db=db)
-        results = await agent.grade(paper_string)
-        print(f"Grading completed for {answer_paper['file_name']}")
-        for result in results:
-            await db["Answers"].update_one(
-                {
-                    "user_id": user_id,
-                    "exam_id": ObjectId(exam_id),
-                    "file_name": result["file_name"],
-                    "answers.question_id": result["question_id"],
-                },
-                {"$set": {"answers.marks": result["marks"]}},
-            )
-        print(f"Marks updated for {answer_paper['file_name']}")
-        await pubsub.publish(
-            channel=f"{user_id}:{exam_id}",
-            message=f"marks updated for filename {result['file_name']}",
+    try:
+        questions_list = await db["Questions"].find_one(
+            {"user_id": user_id, "_id": ObjectId(exam_id)}
         )
-        print(f"Published message to channel {user_id}:{exam_id}")
+        answer_paper_list = db["Answers"].find(
+            {"user_id": user_id, "exam_id": ObjectId(exam_id)}
+        )
+        answer_paper_list = await answer_paper_list.to_list(length=None)
+        pubsub = PubSubManager()
+        await pubsub.connect()
+        print("Starting grading task")
+        for answer_paper in answer_paper_list:
+            for question_info in questions_list["questions"]:
+                qa = ""
+                qa += f"{question_info['question_id']}. {question_info['question']}\n"
+                qa += f"Question Topic: {question_info['topic']}\n"
+                qa += f"Question Type: {question_info['question_type']}\n"
+                qa += f"Total Marks: {question_info['marks']}\n"
+                qa += f"Answer: {answer_paper['answers'][0]['answers']}\n"
+                agent = GradingAgent(exam_id=exam_id, user_id=str(user_id), db=db)
+                result = await agent.grade(qa)
+                print(
+                    f"Grading result for question {question_info['question_id']}: {result}"
+                )
+                marks = result.marks
+                await db["Answers"].update_one(
+                    {"_id": answer_paper["_id"]},
+                    {"$set": {"answers.$[elem].marks": marks}},
+                    array_filters=[{"elem.question_id": result.question_id}],
+                )
+                print(f"Updated marks for question {question_info['question_id']}: {marks}")
+            await pubsub.publish(
+                f"{user_id}:{exam_id}",
+                json.dumps({"message": "Grading completed", "exam_id": exam_id}),
+            )
+    except Exception as e:
+        print(f"Error in grading task: {e}")
 
 
 @exam_router.websocket_route("/{exam_id}")
@@ -152,16 +152,21 @@ async def exam_socket(websocket: WebSocket):
 
     try:
         while True:
-            data = await websocket.receive_text()
             async for message in redis_pubsub.listen():
                 if message["type"] == "message":
 
-                    answers_info_list = await websocket.app.database["Answers"].find(
+                    answers_info_list = websocket.app.database["Answers"].find(
                         {
                             "user_id": ObjectId(user_id),
                             "exam_id": ObjectId(exam_id),
                         }
                     )
+                    answers_info_list = await answers_info_list.to_list(length=None)
+                    if not answers_info_list:
+                        await conn_manager.send_personal_message(
+                            {"message": "No answers found for grading"}, user_id
+                        )
+                        continue
                     data = []
                     for answer_info in answers_info_list:
                         total_marks = sum(
