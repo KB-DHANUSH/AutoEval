@@ -8,6 +8,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from dotenv import load_dotenv
 import os
+import asyncio
+from config import running_tasks, task_lock
 from config import origins
 from Auth.routes import auth_router
 from routes import exam_router
@@ -17,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 load_dotenv()
 
 @asynccontextmanager
-async def db_lifespan(app: FastAPI):
+async def lifespan(app: FastAPI):
     load_dotenv()
     user = os.getenv("MONGO_DB_USERNAME")
     pwd = os.getenv("MONGO_DB_PASSWORD")
@@ -37,14 +39,25 @@ async def db_lifespan(app: FastAPI):
     app.database = app.mongodb_client["InkGrader"]
     yield
     await app.mongodb_client.close()
+    for task in running_tasks.values():
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
-app = FastAPI(lifespan=db_lifespan,debug=True)
+app = FastAPI(lifespan=lifespan, debug=True)
 
-app.include_router(exam_router,prefix="/api/exam")
+app.include_router(exam_router, prefix="/api/exam")
 app.include_router(auth_router, prefix="/api/auth")
+
+@app.post("/api")
+async def root():
+    return {"message": "Welcome to the InkGrader API"}
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,  # List of allowed origins
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

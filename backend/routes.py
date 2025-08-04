@@ -115,6 +115,13 @@ async def grading_task(db: Database, exam_id: str, user_id: ObjectId):
             )
     except Exception as e:
         print(f"Error in grading task: {e}")
+    
+    finally:
+        await pubsub.close()
+        async with task_lock:
+            task_key = f"{user_id}:{exam_id}"
+            if task_key in running_tasks:
+                running_tasks.pop(task_key, None)
 
 
 @exam_router.websocket_route("/{exam_id}")
@@ -182,7 +189,32 @@ async def exam_socket(websocket: WebSocket):
                         )
                     await conn_manager.send_personal_message({"message": data}, user_id)
     except WebSocketDisconnect:
-        await conn_manager.disconnect(websocket, user_id)
-        task = running_tasks.pop(task_key, None)
-        if task:
-            task.cancel()
+        await conn_manager.disconnect(user_id)
+        await pubsub.close()
+    except asyncio.CancelledError:
+        await pubsub.close()
+        await websocket.close(code=1000, reason="WebSocket connection cancelled")
+        print(f"WebSocket connection for user {user_id} cancelled.")
+    finally:
+        async with task_lock:
+            if task_key in running_tasks:
+                running_tasks.pop(task_key, None)
+        await pubsub.close()
+        print(f"WebSocket connection for user {user_id} closed.")
+        
+@exam_router.get("/list")
+async def get_exam_list(
+    request: Request,
+    user=Depends(get_current_user),
+):
+    exams = await request.app.database["Questions"].find(
+        {"user_id": ObjectId(user["_id"])}
+    ).to_list(length=None)
+    returned_exams = []
+    for exam in exams:
+        e = {
+            "_id": str(exam["_id"]),
+            "exam_name": exam["exam_name"],
+        }
+        returned_exams.append(e)
+    return {"exams": returned_exams}
