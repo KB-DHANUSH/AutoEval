@@ -105,9 +105,11 @@ async def process_rag_material(
 
     embedder = TransformerEmbedder()
     splitter = SentenceSplitter()
-    content = [content]
-    chunks = splitter.transform(content)
+    chunks = splitter.transform([content])
     embeddings = embedder.transform(chunks)
+    
+    assert len(chunks) == len(embeddings), "Mismatch between chunks and embeddings"
+    
     fetch_results = await db["Questions"].find_one({
         "exam_name": form.exam_name,
         "user_id": user_id
@@ -115,12 +117,13 @@ async def process_rag_material(
     await db["Chunks"].insert_one(
         {"exam_id": fetch_results["_id"], "user_id": user_id, "chunks": chunks}
     )
+    faiss.normalize_L2(embeddings)
     dim = embeddings.shape[1]
     index = faiss.IndexFlatL2(dim)
     embeddings = np.array(embeddings, dtype="float32")
     index.add(embeddings)
     os.makedirs("faiss_indexes", exist_ok=True)
-    index_name = f"{form.exam_name}_{str(user_id)}.faiss"
+    index_name = f"{fetch_results["_id"]}_{str(user_id)}.faiss"
     path = os.path.join("faiss_indexes", index_name)
     faiss.write_index(index, path)
 
