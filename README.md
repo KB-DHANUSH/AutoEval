@@ -1,4 +1,4 @@
-# InkGrader 🖋
+# AutoEval 🖋
 
 InkGrader is an AI-powered web application designed to automate the evaluation of handwritten documents using OCR (Optical Character Recognition) and intelligent agent systems. It provides a seamless experience for uploading scanned documents, extracting textual content, evaluating responses, and managing user authentication—all within a modern web interface.
 
